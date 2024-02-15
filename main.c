@@ -5,45 +5,32 @@
 #include <sys/ioctl.h>
 #include <net/netmap_user.h>
 
-int main() {
+int main() 
+{
+    
+
+    struct netmap_if *nifp;
     struct nmreq req;
-    int fd = open("/dev/netmap", O_RDWR);
-    if (fd < 0) {
-        perror("Failed to open /dev/netmap");
-        exit(1);
+    int i, len;
+    char *buf;
+
+    fd = open("/dev/netmap", 0);
+    strcpy(req.nr_name, "em0"); // register the interface
+    ioctl(fd, NIOCREG, &req); // offset of the structure
+    mem = mmap(NULL, req.nr_memsize, PROT_READ|PROT_WRITE, 0, fd, 0);
+    nifp = NETMAP_IF(mem, req.nr_offset);
+    for (;;) {
+    	struct pollfd x[1];
+    	struct netmap_ring *ring = NETMAP_RX_RING(nifp, 0);
+
+    	x[0].fd = fd;
+    	x[0].events = POLLIN;
+    	poll(x, 1, 1000);
+    	for ( ; ring->avail > 0 ; ring->avail--) {
+    		i = ring->cur;
+    		buf = NETMAP_BUF(ring, i);
+    		use_data(buf, ring->slot[i].len);
+    		ring->cur = NETMAP_NEXT(ring, i);
+    	}
     }
-
-    memset(&req, 0, sizeof(req));
-    strcpy(req.nr_name, "netmap:em0"); // замените "em0" на имя вашего сетевого устройства
-    req.nr_version = NETMAP_API;
-    ioctl(fd, NIOCGINFO, &req);
-
-    struct nm_desc *nmd = nm_open(req.nr_name, NULL, 0, NULL);
-    if (nmd == NULL) {
-        perror("Failed to open netmap device");
-        exit(1);
-    }
-
-    char buf[2048]; // буфер для пакета
-    memset(buf, 0, sizeof(buf));
-
-    struct netmap_ring *txring = NETMAP_TXRING(nmd->nifp, nmd->cur_tx_ring);
-    uint32_t txslot = txring->cur;
-    struct netmap_slot *slot = &txring->slot[txslot];
-
-    // Заполните буфер пакета данными
-
-    slot->len = sizeof(buf); // Установите длину пакета
-    memcpy(NETMAP_BUF(txring, slot->buf_idx), buf, sizeof(buf));
-
-    slot->flags |= NS_REPORT; // Установите флаг NS_REPORT для отправки пакета
-
-    txring->head = txring->cur = nm_ring_next(txring, txring->cur);
-
-    ioctl(fd, NIOCTXSYNC, NULL); // Синхронизация передачи пакета
-
-    nm_close(nmd);
-    close(fd);
-
-    return 0;
 }
